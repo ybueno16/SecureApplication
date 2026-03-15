@@ -1,0 +1,10 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/vault
+    username: vault
+    password: vault
+
+logging:
+  level:
+    com.vault: DEBUG
+    org.springframework.security: DEBUG
