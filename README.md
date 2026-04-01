@@ -1,7 +1,7 @@
 # Password Vault
 
 [![CI](https://github.com/ybueno16/SecureApplication/actions/workflows/ci.yml/badge.svg)](https://github.com/ybueno16/SecureApplication/actions/workflows/ci.yml)
-[![Coverage](https://raw.githubusercontent.com/ybueno16/SecureApplication/main/.github/badges/jacoco.svg)](https://github.com/ybueno16/SecureApplication/actions/workflows/ci.yml)
+[![Coverage](https://raw.githubusercontent.com/ybueno16/SecureApplication/master/.github/badges/jacoco.svg)](https://github.com/ybueno16/SecureApplication/actions/workflows/ci.yml)
 
 A secure credential management vault built with **Java 21**, **Spring Boot 3.4**, following **DDD** and **Object Calisthenics** principles.
 
