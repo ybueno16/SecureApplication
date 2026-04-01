@@ -51,22 +51,24 @@ jobs:
           path: build/reports/jacoco/test/html/
           retention-days: 7
 
-      - name: Generate coverage badge
-        id: jacoco
-        uses: cicirello/jacoco-badge-generator@v2
-        with:
-          jacoco-csv-file: build/reports/jacoco/test/jacocoTestReport.csv
-          badges-directory: .github/badges
-          generate-coverage-badge: true
-          coverage-badge-filename: jacoco.svg
-
-      - name: Log coverage summary
-        run: echo "Coverage ${{ steps.jacoco.outputs.coverage }}%"
-
-      - name: Commit coverage badge
+      - name: Generate and commit coverage badge
         if: github.event_name == 'push'
-        uses: EndBug/add-and-commit@v9
-        with:
-          default_author: github_actions
-          message: 'chore: update coverage badge [skip ci]'
-          add: '.github/badges/jacoco.svg'
+        run: |
+          CSV=build/reports/jacoco/test/jacocoTestReport.csv
+          PCT=$(tail -n +2 "$CSV" | awk -F',' '{m+=$4; c+=$5} END{printf "%d", c*100/(c+m)}')
+
+          if   [ "$PCT" -ge 90 ]; then COLOR="brightgreen"
+          elif [ "$PCT" -ge 75 ]; then COLOR="green"
+          elif [ "$PCT" -ge 60 ]; then COLOR="yellow"
+          else COLOR="red"
+          fi
+
+          echo "Coverage: ${PCT}% (${COLOR})"
+          curl -sf "https://img.shields.io/badge/coverage-${PCT}%25-${COLOR}.svg?style=flat" \
+            -o .github/badges/jacoco.svg
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/badges/jacoco.svg
+          git diff --staged --quiet || git commit -m "chore: update coverage badge [skip ci]"
+          git push
