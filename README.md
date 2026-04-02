@@ -5,30 +5,40 @@
 
 A secure credential management vault built with **Java 21**, **Spring Boot 3.4**, following **DDD** and **Object Calisthenics** principles.
 
-## Architecture
+---
+
+## Architecture (simple, readable)
+
+### High-level request flow
 
 ```mermaid
-graph LR
-    Client --> RateLimitFilter
-    RateLimitFilter --> JwtAuthFilter
-    JwtAuthFilter --> Controller
-    Controller --> UseCase
-    UseCase --> DomainService
-    UseCase --> Repository
-    Repository --> PostgreSQL[(PostgreSQL)]
-    DomainService --> EncryptionService
+flowchart LR
+  client[Client] --> rl["Rate Limiting Filter"]
+  rl --> jwt["JWT Auth Filter"]
+  jwt --> ctrl["HTTP Controllers"]
+  ctrl --> uc["Use Cases (Application)"]
+  uc --> dom["Domain Services (Domain)"]
+  uc --> repo["Repositories (Infrastructure)"]
+  repo --> db[("PostgreSQL")]
+  dom --> crypto["Encryption Service"]
 ```
 
-### Layer Dependency Flow
+### Layer dependency rules (DDD)
+
+- `interfaces` depends on `application`
+- `application` depends on `domain`
+- `infrastructure` depends on `domain`
+- `infrastructure` implements domain interfaces (Dependency Inversion)
 
 ```mermaid
-graph TD
-    interfaces["interfaces (http)"] --> application
-    application --> domain
-    infrastructure --> domain
-    interfaces --> application
-    infrastructure -.implements.-> domain
+flowchart TD
+  interfaces["interfaces (http)"] --> application["application"]
+  application --> domain["domain"]
+  infrastructure["infrastructure"] --> domain
+  infrastructure -. "implements" .-> domain
 ```
+
+---
 
 ## Encryption / Decryption Flow
 
@@ -60,6 +70,8 @@ sequenceDiagram
     Note over API: Key wiped from memory
 ```
 
+---
+
 ## Object Calisthenics Compliance Checklist
 
 | # | Rule | Status | Notes |
@@ -79,6 +91,8 @@ sequenceDiagram
 - Controller constructors with multiple use case dependencies
 - JDBC RowMapper inner classes
 
+---
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -94,6 +108,8 @@ sequenceDiagram
 | Rate Limiting | Bucket4j + Caffeine |
 | Testing | JUnit 5 + Mockito + Testcontainers |
 
+---
+
 ## Setup & Run
 
 ### Prerequisites
@@ -104,7 +120,7 @@ sequenceDiagram
 ```bash
 docker compose up -d
 ```
-App available at `http://localhost:8080`
+App available at `http://localhost:8080`  
 Swagger UI at `http://localhost:8080/swagger-ui.html`
 
 ### Local Development
@@ -128,6 +144,8 @@ docker compose up -d postgres
 ./gradlew test jacocoTestReport
 # Report: build/reports/jacoco/test/html/index.html
 ```
+
+---
 
 ## API Endpoints
 
@@ -160,6 +178,8 @@ docker compose up -d postgres
 | `cursor` | string | — | Pagination cursor |
 | `limit` | int | 20 | Page size (max 100) |
 
+---
+
 ## Security Features
 
 - **JWT RS256** — RSA 2048-bit key pair generated on first startup
@@ -174,53 +194,53 @@ docker compose up -d postgres
 
 ---
 
-## Decisões Técnicas
+## Technical Decisions
 
-### Arquitetura
+### Architecture
 
-O projeto segue **Domain-Driven Design (DDD)** com quatro camadas bem definidas:
+This project follows **Domain-Driven Design (DDD)** with four well-defined layers:
 
-| Camada | Pacote | Responsabilidade |
-|--------|--------|------------------|
-| **Domain** | `com.vault.domain` | Entidades, Value Objects, lógica de negócio pura, interfaces de repositório |
-| **Application** | `com.vault.application` | Casos de uso, orquestração de fluxos, DTOs |
-| **Infrastructure** | `com.vault.infrastructure` | Implementação de repositórios (JDBC), serviços de segurança, config Spring |
-| **Interfaces** | `com.vault.interfaces` | Controllers HTTP, filtros de requisição |
+| Layer | Package | Responsibility |
+|------|---------|----------------|
+| **Domain** | `com.vault.domain` | Entities, Value Objects, pure business rules, repository interfaces |
+| **Application** | `com.vault.application` | Use cases, flow orchestration, DTOs |
+| **Infrastructure** | `com.vault.infrastructure` | Repository implementations (JDBC), security services, Spring configuration |
+| **Interfaces** | `com.vault.interfaces` | HTTP controllers, request filters |
 
-A regra de dependência flui para dentro: camadas externas dependem das internas, nunca o contrário. A infraestrutura implementa as interfaces definidas no domínio (inversão de dependência).
+The dependency rule flows inward: outer layers depend on inner layers, never the opposite. Infrastructure implements interfaces defined by the domain (dependency inversion).
 
 ### Object Calisthenics
 
-Todas as **9 regras** do Object Calisthenics são respeitadas no domínio e na camada de aplicação:
+All **9 Object Calisthenics rules** are respected in the domain and application layers:
 
-- **Value Objects** para todo primitivo (`UserId`, `Email`, `PasswordHash`, `EncryptedField`, `Tags`, etc.) — elimina primitive obsession
-- **Sem getters/setters** — objetos expõem comportamento, não estado
-- **Sem `else`** — guard clauses e `Optional` em todo o domínio
-- **Coleções de primeira classe** — `Tags` encapsula `List<String>` com regras
-- **Entidades pequenas** — domínio ≤ 100 linhas, casos de uso ≤ 150 linhas
+- **Value Objects** for every primitive (`UserId`, `Email`, `PasswordHash`, `EncryptedField`, `Tags`, etc.) — eliminates primitive obsession
+- **No getters/setters** — objects expose behavior, not state
+- **No `else`** — guard clauses and `Optional` across domain logic
+- **First-class collections** — `Tags` encapsulates `List<String>` with rules
+- **Small entities/use cases** — domain ≤ 100 lines, use cases ≤ 150 lines
 
-Relaxamentos documentados apenas em infraestrutura/interfaces (DSL do Spring Security, RowMappers).
+Relaxations are documented only in infrastructure/interfaces (Spring Security DSL, RowMappers).
 
-### Tecnologias e Justificativas
+### Technologies and Rationale
 
-**Zero JPA / Hibernate** — Num projeto de cofre de senhas, cada query precisa ser intencional e auditável. JPA esconde o SQL, e em segurança isso é um problema — você precisa saber exatamente o que está sendo executado e quando. O `NamedParameterJdbcTemplate` mantém o controle explícito sem abrir mão da produtividade.
+**Zero JPA / Hibernate** — In a password vault, every query must be intentional and auditable. JPA can hide SQL and execution behavior; for security-sensitive code, you want to know exactly what runs and when. `NamedParameterJdbcTemplate` keeps control explicit without sacrificing too much productivity.
 
-**JWT RS256 com par de chaves gerado em startup** — Escolhi criptografia assimétrica em vez de HMAC justamente para não precisar distribuir um segredo compartilhado entre instâncias. A chave privada assina e nunca sai do processo; qualquer réplica consegue validar tokens usando só a pública.
+**JWT RS256 with keys generated at startup** — Asymmetric crypto avoids distributing a shared secret between instances. The private key signs and never leaves the process; any replica can validate tokens using only the public key.
 
-**Argon2id para senhas** — É o algoritmo vencedor do Password Hashing Competition e hoje o mais recomendado para armazenar senhas. Ele é propositalmente lento e consome memória para tornar ataques de força bruta caros — tanto em GPU quanto em hardware especializado.
+**Argon2id for passwords** — A modern recommended choice for password storage. It is intentionally slow and memory-hard to make brute-force attacks expensive on GPUs and specialized hardware.
 
-**AES-256-GCM + PBKDF2-HMAC-SHA256** — GCM autentica o dado além de cifrá-lo, então qualquer adulteração no banco é detectada na hora do decrypt. Um IV aleatório de 96 bits por campo garante que a mesma senha apareça diferente no banco toda vez. O PBKDF2 deriva a chave a partir da master password do usuário com 600k iterações — a senha nunca é armazenada, só a chave derivada é usada em memória e depois descartada.
+**AES-256-GCM + PBKDF2-HMAC-SHA256** — GCM authenticates ciphertext in addition to encrypting it, so tampering in the database is detected during decryption. A random 96-bit IV per field ensures the same plaintext encrypts differently every time. PBKDF2 derives an AES key from the user master password using a per-user salt and 600k iterations — the master password is never stored; only the derived key is used in memory and then discarded.
 
-**Bucket4j + Caffeine** — Rate limiting em memória, sem Redis, sem banco, sem infra extra. O Caffeine cuida da expiração automática dos buckets, mantendo tudo simples e suficiente para o escopo do projeto.
+**Bucket4j + Caffeine** — In-memory rate limiting (no Redis, no database, no extra infrastructure). Caffeine handles bucket expiration automatically, keeping things simple and effective for the project scope.
 
-**Flyway** — O schema do banco mora junto com o código no repositório. Qualquer mudança passa por revisão, tem histórico e é reproduzível em qualquer ambiente — dev, CI ou produção.
+**Flyway** — The database schema lives with the code. Every change is reviewed, versioned, and reproducible in dev, CI, and production.
 
-**Embedded PostgreSQL nos testes** — Queria testes de integração reais contra PostgreSQL, mas sem obrigar ninguém a ter Docker rodando. O `embedded-postgres` sobe binários nativos do Postgres direto no processo Java, então os testes funcionam em qualquer máquina e no CI sem configuração adicional.
+**Embedded PostgreSQL in tests** — Integration tests should run against a real PostgreSQL engine without requiring Docker. `embedded-postgres` runs native PostgreSQL binaries inside the Java process, so tests work on developer machines and in CI with minimal setup.
 
-### Padrões SOLID Aplicados
+### Applied SOLID Principles
 
-- **SRP** — Cada use case (`RegisterUserUseCase`, `LoginUseCase`, etc.) tem uma única razão para mudar
-- **OCP** — Novos algoritmos de criptografia implementam `EncryptionService` sem alterar código existente
-- **LSP** — Value Objects imutáveis; substituição segura em todo contexto
-- **ISP** — Interfaces de repositório segregadas por agregado (`UserRepository`, `CredentialRepository`)
-- **DIP** — Domínio define interfaces; infraestrutura as implementa (nunca o contrário)
+- **SRP** — Each use case (`RegisterUserUseCase`, `LoginUseCase`, etc.) has a single reason to change
+- **OCP** — New crypto algorithms implement `EncryptionService` without modifying existing code
+- **LSP** — Immutable Value Objects; safe substitution across contexts
+- **ISP** — Repository interfaces are segregated by aggregate (`UserRepository`, `CredentialRepository`)
+- **DIP** — The domain defines interfaces; infrastructure implements them (never the other way around)
