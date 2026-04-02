@@ -7,28 +7,152 @@ A secure credential management vault built with **Java 21**, **Spring Boot 3.4**
 
 ---
 
-## Architecture (simple, readable)
+## What is a Password Vault?
 
-### High-level request flow
+A Password Vault is a secure system for storing, organizing, and retrieving secrets (passwords, API keys, notes, etc.) using strong encryption.  
+It provides safe programmatic access (API first) for identity management, automation, and integration scenarios.
+
+Main features:
+- Store secrets protected by per-user master secrets + server-side encryption
+- Retrieve and decrypt secrets on demand (never stored in plain text)
+- Prevents brute-force and unauthorized access with rate limiting, JWT, Argon2id, and strict logs
+
+---
+
+## When Should I Use This Vault?
+
+- You want to *store passwords/secrets/server logins* centrally and decrypt only when needed.
+- You need an API-driven backend for building your own password manager, DevOps secrets tool, or strongbox for scripts and automations.
+- Your team handles credentials for production, staging, cloud, and you want security/auditability.
+
+---
+
+## How to Use — Quick Guide
+
+> See [API Endpoints](#api-endpoints) for details.
+
+1. **Register (Create your user)**
+    ```bash
+    curl -X POST http://localhost:8080/api/v1/auth/register \
+         -H "Content-Type: application/json" \
+         -d '{"email":"you@example.com","password":"MyStr0ngPass"}'
+    ```
+
+2. **Login (Get Token)**
+    ```bash
+    curl -X POST http://localhost:8080/api/v1/auth/login \
+         -H "Content-Type: application/json" \
+         -d '{"email":"you@example.com","password":"MyStr0ngPass"}'
+    ```
+    Save the `accessToken`!
+
+3. **Store a Secret**
+    ```bash
+    curl -X POST http://localhost:8080/api/v1/credentials \
+         -H "Authorization: Bearer <ACCESS_TOKEN>" \
+         -H "X-Master-Password: <YOUR_MASTER_PASS>" \
+         -H "Content-Type: application/json" \
+         -d '{"site":"github.com","username":"youruser","password":"Y0urS3cr3t"}'
+    ```
+
+4. **List Credentials**
+    ```bash
+    curl -X GET http://localhost:8080/api/v1/credentials \
+         -H "Authorization: Bearer <ACCESS_TOKEN>"
+    ```
+
+5. **Reveal/Decrypt a Secret**
+    ```bash
+    curl -X GET http://localhost:8080/api/v1/credentials/<CRED_ID>/reveal \
+         -H "Authorization: Bearer <ACCESS_TOKEN>" \
+         -H "X-Master-Password: <YOUR_MASTER_PASS>"
+    ```
+
+6. **Generate a Random Password**
+    ```bash
+    curl -X GET "http://localhost:8080/api/v1/generator?length=20"
+    ```
+
+7. **Update / Delete Credentials**
+    See examples in [API Endpoints](#api-endpoints).
+
+---
+
+## FAQ
+
+**Why do I need the master password each time?**  
+Your secrets are "zero knowledge": only your password can decrypt them. The server never stores your master password.
+
+**Is this audited and secure?**  
+All encryption is with AES-256-GCM, PBKDF2 (600k), Argon2id for login, and JWT for sessions. Logs, rate limits, and rules minimize attack surface.
+
+---
+
+## Setup & Run
+
+### Prerequisites
+- Java 21+
+- Docker & Docker Compose
+
+### With Docker Compose
+```bash
+docker compose up -d
+```
+App available at `http://localhost:8080`  
+Swagger UI at `http://localhost:8080/swagger-ui.html`
+
+### Local Development
+```bash
+# Start PostgreSQL
+docker compose up -d postgres
+
+# Run the app
+./gradlew bootRun --args='--spring.profiles.active=dev'
+```
+
+### Run Tests
+```bash
+# Unit tests only
+./gradlew test --tests "com.vault.domain.*" --tests "com.vault.application.*"
+
+# Integration tests (embedded PostgreSQL — no Docker required)
+./gradlew test --tests "com.vault.integration.*"
+
+# All tests with coverage report
+./gradlew test jacocoTestReport
+# Report: build/reports/jacoco/test/html/index.html
+```
+
+---
+
+## Architecture
+
+### System Context (High-Level)
 
 ```mermaid
 flowchart LR
-  client[Client] --> rl["Rate Limiting Filter"]
+  client[Client] --> api["Password Vault API"]
+  api --> db[(PostgreSQL)]
+```
+- **Client**: Your app, CLI tools, or web UI
+- **Password Vault API**: Handles authentication, encryption, secrets storage
+- **PostgreSQL**: Securely stores encrypted credentials and user data
+
+### Components and Flow
+
+```mermaid
+flowchart LR
+  client[Client] --> rl["Rate Limit Filter"]
   rl --> jwt["JWT Auth Filter"]
   jwt --> ctrl["HTTP Controllers"]
   ctrl --> uc["Use Cases (Application)"]
-  uc --> dom["Domain Services (Domain)"]
-  uc --> repo["Repositories (Infrastructure)"]
-  repo --> db[("PostgreSQL")]
+  uc --> dom["Domain Services (Business Logic)"]
+  uc --> repo["Repositories"]
+  repo --> db[(PostgreSQL)]
   dom --> crypto["Encryption Service"]
 ```
 
-### Layer dependency rules (DDD)
-
-- `interfaces` depends on `application`
-- `application` depends on `domain`
-- `infrastructure` depends on `domain`
-- `infrastructure` implements domain interfaces (Dependency Inversion)
+### Layer Dependency (DDD)
 
 ```mermaid
 flowchart TD
@@ -54,9 +178,7 @@ sequenceDiagram
     API->>DB: Fetch user KDF salt
     API->>Crypto: deriveKey(masterPassword, salt) via PBKDF2 (600k iterations)
     Crypto-->>API: 256-bit AES key (ephemeral)
-    API->>Crypto: encrypt(username, key) → AES-256-GCM + random 96-bit IV
-    API->>Crypto: encrypt(password, key) → AES-256-GCM + random 96-bit IV
-    API->>Crypto: encrypt(notes, key) → AES-256-GCM + random 96-bit IV
+    API->>Crypto: encrypt(username, key), encrypt(password, key), encrypt(notes, key)
     API->>DB: Store IV||ciphertext per field
     Note over API: Key wiped from memory
 
@@ -110,43 +232,6 @@ sequenceDiagram
 
 ---
 
-## Setup & Run
-
-### Prerequisites
-- Java 21+
-- Docker & Docker Compose
-
-### With Docker Compose
-```bash
-docker compose up -d
-```
-App available at `http://localhost:8080`  
-Swagger UI at `http://localhost:8080/swagger-ui.html`
-
-### Local Development
-```bash
-# Start PostgreSQL
-docker compose up -d postgres
-
-# Run the app
-./gradlew bootRun --args='--spring.profiles.active=dev'
-```
-
-### Run Tests
-```bash
-# Unit tests only
-./gradlew test --tests "com.vault.domain.*" --tests "com.vault.application.*"
-
-# Integration tests (embedded PostgreSQL — no Docker required)
-./gradlew test --tests "com.vault.integration.*"
-
-# All tests with coverage report
-./gradlew test jacocoTestReport
-# Report: build/reports/jacoco/test/html/index.html
-```
-
----
-
 ## API Endpoints
 
 | Method | Path | Auth | Description |
@@ -161,22 +246,6 @@ docker compose up -d postgres
 | `DELETE` | `/api/v1/credentials/{id}` | Bearer | Delete credential |
 | `GET` | `/api/v1/credentials/{id}/reveal` | Bearer + `X-Master-Password` | Decrypt & reveal credential |
 | `GET` | `/api/v1/generator` | No | Generate random secure password |
-
-### Query Parameters for `/api/v1/generator`
-
-| Param | Type | Default | Description |
-|-------|------|---------|-------------|
-| `length` | int | 24 | Password length (8–128) |
-| `symbols` | bool | true | Include symbols |
-| `ambiguous` | bool | false | Exclude ambiguous chars (O0Il1) |
-
-### Query Parameters for `/api/v1/credentials`
-
-| Param | Type | Default | Description |
-|-------|------|---------|-------------|
-| `search` | string | — | Filter by site URL (ILIKE) |
-| `cursor` | string | — | Pagination cursor |
-| `limit` | int | 20 | Page size (max 100) |
 
 ---
 
@@ -244,3 +313,7 @@ Relaxations are documented only in infrastructure/interfaces (Spring Security DS
 - **LSP** — Immutable Value Objects; safe substitution across contexts
 - **ISP** — Repository interfaces are segregated by aggregate (`UserRepository`, `CredentialRepository`)
 - **DIP** — The domain defines interfaces; infrastructure implements them (never the other way around)
+
+---
+
+Feel free to suggest more improvements or open a PR! 🚀
